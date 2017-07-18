@@ -14,7 +14,6 @@ math = require('./kmath.js');
 //require("./complex.js");
 fs = require("fs");
 require('./nifti.js');
-require('./Matrix.js');
 numeric = require('./numeric-1.2.6.js')
 
 var filename = 'rotated.nii'
