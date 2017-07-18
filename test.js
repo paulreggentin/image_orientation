@@ -14,7 +14,8 @@ math = require('./kmath.js');
 //require("./complex.js");
 fs = require("fs");
 require('./nifti.js');
-
+require('./Matrix.js');
+numeric = require('./numeric-1.2.6.js')
 
 var filename = 'rotated.nii'
 
@@ -27,6 +28,13 @@ var orientation = new Float32Array(3);
 orient(nii.data,nii.sizes,orientation);
 
 console.log(orientation);
+
+
+
+
+
+
+
 /*
 returns information about the orientation of an object in an image
 assumes only one object is present
@@ -65,7 +73,7 @@ function orient(img, dim, orientation){
     }
 
     var thresh = min + bin_width * otsu(hist,img.length);
-    var binary_img = new Uint8Array(img.length);
+    var mask = new Uint8Array(img.length);
     for(var col = 0; col < dim[1]*dim[2]; col++){
         var firstpix = 0;
         var lastpix = dim[0]-1;
@@ -73,21 +81,112 @@ function orient(img, dim, orientation){
             firstpix++;
         }
         if(firstpix==lastpix){ continue; }
+	
         while(firstpix<lastpix && img[dim[0]*col+lastpix] < thresh){
-            firstpix--;
+            lastpix--;
         }
+	
         for(var i = firstpix; i <= lastpix; i++){
-            binary_img[dim[0]*col+i] = 1;
+            mask[dim[0]*col+i] = 1;
         }
     }
 
+    
+    //exportimg(binary_img,'/home/paul/Documents/inertia_tensor/bin.csv');
+    var tot_mass = 0;
+    var cntr_mass = new Float64Array(3);
+//find the center of mass
+    for(var c = 0; c < dim[2]; c++){
+        for(var b = 0; b < dim[1]; b++){
+            for(var a = 0; a < dim[0]; a++){
+                var idx = [get1Dindex(dim,a,b,c)];
+                if(mask[idx]){
+                    tot_mass += img[idx];
+                    cntr_mass[0] += img[idx]*a;
+                    cntr_mass[1] += img[idx]*b;
+                    cntr_mass[2] += img[idx]*c;
+                }
+            }
+        }
+    }
+    cntr_mass[0] /=tot_mass;
+    cntr_mass[1] /=tot_mass;
+    cntr_mass[2] /=tot_mass;
+
+    
+//find the orientation via the principal inertial axes
+    I = [[0,0,0],[0,0,0],[0,0,0]];
+    for(var c = 0; c < dim[2]; c++){
+        for(var b = 0; b < dim[1]; b++){
+            for(var a = 0; a < dim[0]; a++){
+                var idx = [get1Dindex(dim,a,b,c)];
+                if(mask[idx]){
+                    var aa = a-cntr_mass[0];
+                    var bb = b-cntr_mass[1];
+                    var cc = c-cntr_mass[2];
+                    I[0][0] += img[idx] * (bb*bb + cc*cc);
+                    I[0][1] += img[idx] * (-aa) * bb;
+                    I[0][2] += img[idx] * (-aa) * cc;
+                    I[1][0] += img[idx] * (-aa) * bb;
+                    I[1][1] += img[idx] * (aa*aa + cc*cc);
+                    I[1][2] += img[idx] * (-bb) * cc;
+                    I[2][0] += img[idx] * (-aa) * cc;
+                    I[2][1] += img[idx] * (-bb) * cc;
+                    I[2][2] += img[idx] * (aa*aa + bb*bb);
+                }
+            }
+        }
+    }
+    //DEBUG: normalize I
+    /*
+    var Itot = 0;
+    for(var i = 0; i < 3; i++){
+        for(var j = 0; j < 3; j++){
+            Itot += I[i][j];
+    }
+    }
+
+    for(var i = 0; i < 3; i++){
+        for(var j = 0; j < 3; j++){
+            I[i][j] /= Itot;
+    }
+    }
+    */
+    ev = numeric.eig(I);
+
+    //smallest eigenvalue corresponds to primary axis of rotation, which should be anterior-posterior axis
+    var eigval = ev.lambda.x;
+    var axis;
+    if(eigval[0] < eigval[1]){
+        if(eigval[0] < eigval[2]){
+            axis = 0;
+        } else {
+            axis = 2;
+        }
+    } else {
+        if(eigval[1] < eigval[2]){
+            axis = 1;
+        } else {
+            axis = 2;           
+        }
+    }
+
+
     var en = performance.now();
     console.log(en-st);
-    exportimg(binary_img,'/home/paul/Documents/inertia_tensor/bin.csv');
-    
-//find the center of mass
 
-//find the orientation via the principal inertial axes
+
+    var ex = img.slice(35*slicelen,36*slicelen);
+    var scale = ev.E.x[0][axis]/ev.E.x[1][axis];
+    for(var x = 0; x < dim[1]; x++){
+        var y = math.round((x-cntr_mass[1])*scale+cntr_mass[0]);
+        ex[y+dim[0]*x] = 2*max;
+    }
+    exportimg(ex,'/home/paul/Documents/inertia_tensor/c.csv');
+
+    orientation[0] = cntr_mass[0];
+    orientation[1] = cntr_mass[1];
+    orientation[2] = Math.atan(scale);
 }
 
 //total is total number of pixels
@@ -131,3 +230,34 @@ function exportimg(vec,filename){
 }
 
 
+function get1Dindex(dim,a,b,c){
+    return (a+dim[0]*b+c*dim[0]*dim[1]);
+}
+
+/*
+function testspeed(){
+    var prod;
+    var s = performance.now();
+    for(var i = 0; i < 10000000000; i++){
+        prod = -i*3.56;
+    }
+    var e = performance.now();
+    console.log('-a*b',e-s);
+
+    var s = performance.now();
+    for(var i = 0; i < 10000000000; i++){
+        prod = (0-i)*3.56;
+    }
+    var e = performance.now();
+    console.log('(0-a)*b',e-s);
+
+    var s = performance.now();
+    for(var i = 0; i < 10000000000; i++){
+        prod = -1*i*3.56;
+    }
+    var e = performance.now();
+    console.log('-1*a*b',e-s);
+}
+
+testspeed();
+*/
