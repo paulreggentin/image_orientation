@@ -16,6 +16,9 @@ fs = require("fs");
 require('./nifti.js');
 numeric = require('./numeric-1.2.6.js')
 
+
+
+
 var filename = 'rotated.nii'
 
 var raw = fs.readFileSync(filename);
@@ -24,7 +27,9 @@ var nii = parse(raw);
 
 var orientation = new Float32Array(3);
 
-orient(nii.data,nii.sizes,orientation);
+orient(nii.data, nii.sizes, nii.spaceOrigin, nii.spaceDirections, orientation);
+
+//orient(nii.data, nii.sizes, [5,10,15], [[2,0,0],[0,4,0],[0,0,8]], orientation);
 
 console.log(orientation);
 
@@ -40,11 +45,22 @@ assumes only one object is present
 ARGUMENTS:
             img: a float vector representing an image stack
             dim: an integer array representing the dimensions of img
+            rw_offset: a 3-element vector representing the real world coordinates of img[0][0][0] 
+            rw_dim: a 3x3 matrix that transforms image coordinates into real world coordinates.
             orientation: a 3-element array that will store the output information
                          [center_x, center_x, angle_of_orientation]
 */
-function orient(img, dim, orientation){
+function orient(img, dim, rw_offset, rw_dim, orientation){
     var st = performance.now();
+
+    //set up coordinate transforms
+    var img_to_rw = new Coord(rw_offset,rw_dim);
+   
+    /*
+    var rw =  img_to_rw.trans([1,2,3]);
+    console.log('rw:',rw);
+    console.log('img: ',img_to_rw.inv(rw));
+    */
 
     var slicelen = dim[0]*dim[1];
 //binarize image
@@ -93,7 +109,8 @@ function orient(img, dim, orientation){
     
     //exportimg(binary_img,'/home/paul/Documents/inertia_tensor/bin.csv');
     var tot_mass = 0;
-    var cntr_mass = new Float64Array(3);
+    //var cntr_mass = new Float64Array(3);
+    var rwcntr_mass = new Float64Array(3);
 //find the center of mass
     for(var c = 0; c < dim[2]; c++){
         for(var b = 0; b < dim[1]; b++){
@@ -101,17 +118,29 @@ function orient(img, dim, orientation){
                 var idx = [get1Dindex(dim,a,b,c)];
                 if(mask[idx]){
                     tot_mass += img[idx];
+                    var r = img_to_rw.trans([a,b,c]);
+                    /*
                     cntr_mass[0] += img[idx]*a;
                     cntr_mass[1] += img[idx]*b;
                     cntr_mass[2] += img[idx]*c;
+                    */
+                    rwcntr_mass[0] += img[idx]*r[0];
+                    rwcntr_mass[1] += img[idx]*r[1];
+                    rwcntr_mass[2] += img[idx]*r[2];
                 }
             }
         }
     }
+    /*
     cntr_mass[0] /=tot_mass;
     cntr_mass[1] /=tot_mass;
     cntr_mass[2] /=tot_mass;
+    */
+    rwcntr_mass[0] /=tot_mass;
+    rwcntr_mass[1] /=tot_mass;
+    rwcntr_mass[2] /=tot_mass;
 
+    //var rw_cntr_mass2 = img_to_rw.trans(cntr_mass);
     
 //find the orientation via the principal inertial axes
     I = [[0,0,0],[0,0,0],[0,0,0]];
@@ -120,9 +149,10 @@ function orient(img, dim, orientation){
             for(var a = 0; a < dim[0]; a++){
                 var idx = [get1Dindex(dim,a,b,c)];
                 if(mask[idx]){
-                    var aa = a-cntr_mass[0];
-                    var bb = b-cntr_mass[1];
-                    var cc = c-cntr_mass[2];
+                    var r = img_to_rw.trans([a,b,c]);
+                    var aa = r[0] - rwcntr_mass[0];
+                    var bb = r[1] - rwcntr_mass[1];
+                    var cc = r[2] - rwcntr_mass[2];
                     I[0][0] += img[idx] * (bb*bb + cc*cc);
                     I[0][1] += img[idx] * (-aa) * bb;
                     I[0][2] += img[idx] * (-aa) * cc;
@@ -178,13 +208,13 @@ function orient(img, dim, orientation){
     var ex = img.slice(35*slicelen,36*slicelen);
     var scale = ev.E.x[0][axis]/ev.E.x[1][axis];
     for(var x = 0; x < dim[1]; x++){
-        var y = math.round((x-cntr_mass[1])*scale+cntr_mass[0]);
+        var y = math.round((x-rwcntr_mass[1])*scale+rwcntr_mass[0]);
         ex[y+dim[0]*x] = 2*max;
     }
     exportimg(ex,'/home/paul/Documents/inertia_tensor/c.csv');
 
-    orientation[0] = cntr_mass[0];
-    orientation[1] = cntr_mass[1];
+    orientation[0] = rwcntr_mass[0];
+    orientation[1] = rwcntr_mass[1];
     orientation[2] = Math.atan(scale);
 }
 
@@ -231,6 +261,39 @@ function exportimg(vec,filename){
 
 function get1Dindex(dim,a,b,c){
     return (a+dim[0]*b+c*dim[0]*dim[1]);
+}
+
+function Coord(oset,stretch){
+    if(oset[0].length != undefined) {
+        this.offset = [oset[0][0],oset[1][0],oset[2][0]];
+    } else {
+        this.offset = oset;
+    }
+
+    this.mat = [[stretch[0][0],stretch[0][1],stretch[0][2],this.offset[0]],
+                [stretch[1][0],stretch[1][1],stretch[1][2],this.offset[1]],
+                [stretch[2][0],stretch[2][1],stretch[2][2],this.offset[2]],
+                [0,0,0,1]];
+
+    this.trans = function(xyz){
+        var v; 
+        if(xyz[0].length != undefined){
+            v = [xyz[0][0],xyz[1][0],xyz[2][0],1];
+        } else {
+            v = [xyz[0],xyz[1],xyz[2],1];
+        }
+        return numeric.dot(this.mat,v).slice(0,3);
+    }
+
+    this.inv = function(xyz){
+        var v; 
+        if(xyz[0].length != undefined){
+            v = [xyz[0][0],xyz[1][0],xyz[2][0],1];
+        } else {
+            v = [xyz[0],xyz[1],xyz[2],1];
+        }
+        return numeric.dot(numeric.inv(this.mat),v).slice(0,3);
+    }
 }
 
 /*
