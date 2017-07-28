@@ -31,11 +31,11 @@ center = new Float32Array(3);
 normal = new Float32Array(3);
 
 
-orient.locate(nii.data, nii.sizes, nii.spaceOrigin, nii.spaceDirections, center, normal);
+//orient.locate(nii.data, nii.sizes, nii.spaceOrigin, nii.spaceDirections, center, normal);
 
 //orient(nii.data, nii.sizes, [5,10,15], [[2,0,0],[0,4,0],[0,0,8]], orientation);
 
-console.log(center,normal);
+//console.log(center,normal);
 
 
 /*
@@ -53,3 +53,5 @@ var p = new img_proc.Plane([2,-3,-4],[0,22,0]);
 
 console.log(p.reflect([1,-2,4]));
 */
+
+img_proc.find_center_hough(img,dim);

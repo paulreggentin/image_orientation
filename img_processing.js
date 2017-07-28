@@ -21,8 +21,8 @@ module.exports = img_proc;
 Javascript Image Processing Toolbox
 
 FUNCTIONS:
-downsample  (IN PROGRESS)
-find_symmetry_plane
+downsample  (DONE)
+find_symmetry_plane (DONE)
 find_center_hough
 otsu        (DONE)
 exportimg   (DONE)
@@ -192,8 +192,13 @@ img_proc.find_symmetry_plane = function (img,mask,img_to_rw,index,axes,center){
     return best_plane;
 }
 
-img_proc.find_center_hough = function (img){
-    
+
+/*
+finds the center of a circular or ellipse
+*/
+img_proc.find_center_hough = function (img,dim,center){
+    var index = new img_proc.IndexTransform(dim);
+
 }
 
 
